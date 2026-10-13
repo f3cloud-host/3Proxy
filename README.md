@@ -13,16 +13,16 @@ cd /root && curl -fsSL -o 3proxy.sh https://raw.githubusercontent.com/f3cloud-ho
 /root/3proxy.sh
 ```
 
-Choose `1` to install, answer the questions about ports (press Enter to keep the defaults 3128 and 1080) and create the first user. Installation takes about half a minute.
+The menu is in Russian. Choose `1` (Установить 3proxy) to install, answer the questions about ports (press Enter to keep the defaults 3128 and 1080) and create the first user. Installation takes about half a minute.
 
 Run `/root/3proxy.sh` again at any time to manage the proxy:
 
 ```
-1. Add user
-2. Delete user
-3. List users
-4. Uninstall 3proxy
-5. Exit
+1. Добавить пользователя    add a user
+2. Удалить пользователя     delete a user
+3. Список пользователей     list users
+4. Удалить 3proxy           uninstall 3proxy
+5. Выход                    exit
 ```
 
 After each new user the script prints ready-to-use connection strings:

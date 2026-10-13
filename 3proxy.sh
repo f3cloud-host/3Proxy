@@ -12,7 +12,7 @@
 
 set -o pipefail
 
-MANAGER_VERSION="1.0.0"
+MANAGER_VERSION="1.1.0"
 
 # 3proxy LTS branch (0.9.x, bugfixes only), built from the official release tarball
 PROXY_VERSION="0.9.9.1"
@@ -37,23 +37,23 @@ LINE="------------------------------------------------"
 
 info() { echo "${C_GREEN}$*${C_RESET}"; }
 warn() { echo "${C_YELLOW}$*${C_RESET}"; }
-die()  { echo "${C_RED}Error: $*${C_RESET}" >&2; exit 1; }
+die()  { echo "${C_RED}Ошибка: $*${C_RESET}" >&2; exit 1; }
 
 header() {
   echo
-  echo "${C_BOLD}3proxy Manager v${MANAGER_VERSION} (by F3 Cloud)${C_RESET}"
+  echo "${C_BOLD}3proxy Manager v${MANAGER_VERSION} от F3 Cloud${C_RESET}"
   echo
 }
 
 # ---------- checks ----------
 
 require_root() {
-  [ "$(id -u)" -eq 0 ] || die "run the script as root, for example: sudo $0"
+  [ "$(id -u)" -eq 0 ] || die "запустите скрипт от имени root, например sudo $0"
 }
 
 require_systemd() {
   if ! command -v systemctl >/dev/null 2>&1 || [ ! -d /run/systemd/system ]; then
-    die "systemd is required"
+    die "нужна система с systemd"
   fi
 }
 
@@ -65,7 +65,7 @@ detect_pkg() {
   elif command -v yum >/dev/null 2>&1; then
     PKG="yum"
   else
-    die "unsupported system: apt, dnf or yum is required"
+    die "система не поддерживается, нужен apt, dnf или yum"
   fi
 }
 
@@ -90,9 +90,9 @@ ask_yes_no() {
     read -r -p "$1 ($hint): " answer
     answer="${answer:-$2}"
     case "$answer" in
-      y|Y|yes|YES) return 0 ;;
-      n|N|no|NO) return 1 ;;
-      *) warn "Please answer y or n." ;;
+      y|Y|yes|YES|д|Д|да|Да) return 0 ;;
+      n|N|no|NO|н|Н|нет|Нет) return 1 ;;
+      *) warn "Ответьте y (да) или n (нет)." ;;
     esac
   done
 }
@@ -108,11 +108,11 @@ ask_port() {
     read -r -p "$1 [$2]: " port
     port="${port:-$2}"
     if ! [[ "$port" =~ ^[0-9]+$ ]] || [ "$port" -lt 1 ] || [ "$port" -gt 65535 ]; then
-      warn "The port must be a number from 1 to 65535."
+      warn "Порт должен быть числом от 1 до 65535."
     elif [ -n "$3" ] && [ "$port" = "$3" ]; then
-      warn "This port is already used by the other proxy type, choose another one."
+      warn "Этот порт уже выбран для другого прокси, укажите другой."
     elif port_in_use "$port"; then
-      warn "Port $port is already used by another program, choose another one."
+      warn "Порт $port уже занят другой программой, укажите другой."
     else
       REPLY_PORT="$port"
       return 0
@@ -147,11 +147,12 @@ user_exists() {
 }
 
 restart_proxy() {
+  echo "Применяем изменения..."
   write_config
   systemctl restart 3proxy >/dev/null 2>&1
   sleep 1
   if ! systemctl is-active --quiet 3proxy; then
-    die "3proxy did not start, see: journalctl -u 3proxy -n 50"
+    die "3proxy не запустился, подробности покажет команда journalctl -u 3proxy -n 50"
   fi
 }
 
@@ -160,7 +161,7 @@ print_details() {
   local ip
   ip="$(server_ip)"
   echo
-  echo "Proxy connection details:"
+  echo "Данные для подключения:"
   echo "$LINE"
   [ -n "$HTTP_PORT" ] && echo "http://${ip}:${HTTP_PORT}:$1:$2"
   [ -n "$SOCKS_PORT" ] && echo "socks5://${ip}:${SOCKS_PORT}:$1:$2"
@@ -199,15 +200,15 @@ firewall_close() {
 # ---------- install ----------
 
 install_deps() {
-  echo "Installing build tools..."
+  echo "Устанавливаем инструменты для сборки..."
   case "$PKG" in
     apt)
       export DEBIAN_FRONTEND=noninteractive
-      apt-get update -qq >/dev/null || die "apt-get update failed"
-      apt-get install -y -qq gcc make tar curl ca-certificates iproute2 >/dev/null || die "could not install packages"
+      apt-get update -qq >/dev/null || die "не удалось обновить список пакетов"
+      apt-get install -y -qq gcc make tar curl ca-certificates iproute2 >/dev/null || die "не удалось установить пакеты"
       ;;
     dnf|yum)
-      "$PKG" install -y -q gcc make tar curl ca-certificates iproute >/dev/null || die "could not install packages"
+      "$PKG" install -y -q gcc make tar curl ca-certificates iproute >/dev/null || die "не удалось установить пакеты"
       ;;
   esac
 }
@@ -215,18 +216,18 @@ install_deps() {
 build_proxy() {
   local tmp
   tmp="$(mktemp -d)"
-  echo "Downloading 3proxy ${PROXY_VERSION}..."
-  curl -fsSL --retry 3 -o "${tmp}/3proxy.tar.gz" "$PROXY_URL" || { rm -rf "$tmp"; die "could not download $PROXY_URL"; }
-  echo "${PROXY_SHA256}  ${tmp}/3proxy.tar.gz" | sha256sum -c --status || { rm -rf "$tmp"; die "checksum mismatch, the download is damaged"; }
+  echo "Скачиваем 3proxy ${PROXY_VERSION}..."
+  curl -fsSL --retry 3 -o "${tmp}/3proxy.tar.gz" "$PROXY_URL" || { rm -rf "$tmp"; die "не удалось скачать $PROXY_URL"; }
+  echo "${PROXY_SHA256}  ${tmp}/3proxy.tar.gz" | sha256sum -c --status || { rm -rf "$tmp"; die "контрольная сумма не совпала, архив повреждён"; }
 
-  echo "Building 3proxy, this takes about a minute..."
-  tar xzf "${tmp}/3proxy.tar.gz" -C "$tmp" || { rm -rf "$tmp"; die "could not unpack the archive"; }
+  echo "Собираем 3proxy, это займёт около минуты..."
+  tar xzf "${tmp}/3proxy.tar.gz" -C "$tmp" || { rm -rf "$tmp"; die "не удалось распаковать архив"; }
   (cd "${tmp}/3proxy-${PROXY_VERSION}" && make -f Makefile.Linux -j"$(nproc)" >"${tmp}/build.log" 2>&1) || {
     tail -n 20 "${tmp}/build.log" >&2
     rm -rf "$tmp"
-    die "build failed"
+    die "сборка не удалась"
   }
-  install -m 755 "${tmp}/3proxy-${PROXY_VERSION}/bin/3proxy" "$BIN" || { rm -rf "$tmp"; die "could not install the binary"; }
+  install -m 755 "${tmp}/3proxy-${PROXY_VERSION}/bin/3proxy" "$BIN" || { rm -rf "$tmp"; die "не удалось установить программу"; }
   rm -rf "$tmp"
 }
 
@@ -235,7 +236,7 @@ write_config() {
   uid="$(id -u "$SERVICE_USER")"
   gid="$(id -g "$SERVICE_USER")"
   {
-    echo "# Managed by 3proxy Manager (F3 Cloud). Edit users with /root/3proxy.sh"
+    echo "# Создано 3proxy Manager (F3 Cloud). Пользователей меняйте через /root/3proxy.sh"
     echo "nserver 1.1.1.1"
     echo "nserver 8.8.8.8"
     echo "nscache 65536"
@@ -282,26 +283,26 @@ EOF
 
 do_install() {
   echo
-  echo "Installing 3proxy..."
+  echo "Установка 3proxy..."
   echo
 
   HTTP_PORT=""; SOCKS_PORT=""; FW=""
-  if ask_yes_no "Enable HTTP/S proxy?" y; then
-    ask_port "Enter HTTP/S proxy port" 3128 ""
+  if ask_yes_no "Включить HTTP/S-прокси?" y; then
+    ask_port "Порт HTTP/S-прокси" 3128 ""
     HTTP_PORT="$REPLY_PORT"
   fi
-  if ask_yes_no "Enable SOCKS5 proxy?" y; then
-    ask_port "Enter SOCKS5 proxy port" 1080 "$HTTP_PORT"
+  if ask_yes_no "Включить SOCKS5-прокси?" y; then
+    ask_port "Порт SOCKS5-прокси" 1080 "$HTTP_PORT"
     SOCKS_PORT="$REPLY_PORT"
   fi
-  [ -n "$HTTP_PORT" ] || [ -n "$SOCKS_PORT" ] || die "at least one proxy type must be enabled"
+  [ -n "$HTTP_PORT" ] || [ -n "$SOCKS_PORT" ] || die "нужно включить хотя бы один тип прокси"
   echo
 
   install_deps
   build_proxy
 
   id "$SERVICE_USER" >/dev/null 2>&1 || useradd --system --no-create-home --shell /usr/sbin/nologin "$SERVICE_USER" \
-    || die "could not create the $SERVICE_USER system user"
+    || die "не удалось создать системного пользователя $SERVICE_USER"
 
   mkdir -p "$CONF_DIR"
   chmod 700 "$CONF_DIR"
@@ -317,10 +318,10 @@ do_install() {
   restart_proxy
 
   echo
-  info "3proxy ${PROXY_VERSION} successfully installed"
-  [ -n "$FW" ] && echo "Ports opened in the firewall (${FW}): ${HTTP_PORT} ${SOCKS_PORT}"
+  info "3proxy ${PROXY_VERSION} успешно установлен"
+  [ -n "$FW" ] && echo "Порты открыты в брандмауэре ${FW}: ${HTTP_PORT} ${SOCKS_PORT}"
   echo
-  echo "Now create the first proxy user."
+  echo "Теперь создайте первого пользователя прокси."
   do_add_user
 }
 
@@ -330,22 +331,22 @@ do_add_user() {
   local name pass
   echo
   while true; do
-    read -r -p "Enter username: " name
+    read -r -p "Логин: " name
     if ! [[ "$name" =~ ^[A-Za-z0-9._-]{1,32}$ ]]; then
-      warn "Use 1-32 characters: latin letters, digits, dot, dash or underscore."
+      warn "Логин может содержать от 1 до 32 символов, это латинские буквы, цифры, точка, дефис и подчёркивание."
     elif user_exists "$name"; then
-      warn "User $name already exists."
+      warn "Пользователь $name уже есть."
     else
       break
     fi
   done
   while true; do
-    read -r -p "Enter password (press Enter to generate): " pass
+    read -r -p "Пароль (Enter, чтобы придумать автоматически): " pass
     [ -n "$pass" ] || pass="$(random_password)"
     if [[ "$pass" =~ ^[A-Za-z0-9._@!%+=-]{4,64}$ ]]; then
       break
     fi
-    warn "Use 4-64 characters: latin letters, digits and . _ @ ! % + = -"
+    warn "Пароль может содержать от 4 до 64 символов, это латинские буквы, цифры и . _ @ ! % + = -"
   done
 
   echo "${name}:CL:${pass}" >>"$USERS_FILE"
@@ -357,14 +358,14 @@ do_delete_user() {
   local name
   if [ "$(user_count)" -eq 0 ]; then
     echo
-    warn "There are no users yet."
+    warn "Пользователей пока нет."
     echo
     return
   fi
   do_list_users
-  read -r -p "Enter username to delete: " name
+  read -r -p "Логин пользователя, которого нужно удалить: " name
   if [ -z "$name" ] || ! user_exists "$name"; then
-    warn "User not found."
+    warn "Такого пользователя нет."
     echo
     return
   fi
@@ -372,13 +373,13 @@ do_delete_user() {
   chmod 600 "$USERS_FILE"
   restart_proxy
   echo
-  info "User $name deleted"
+  info "Пользователь $name удалён"
   echo
 }
 
 do_list_users() {
   echo
-  echo "Users ($(user_count)):"
+  echo "Пользователи ($(user_count)):"
   echo "$LINE"
   [ -s "$USERS_FILE" ] && sed -n 's/^\([^:]*\):CL:\(.*\)$/\1:\2/p' "$USERS_FILE"
   echo "$LINE"
@@ -389,7 +390,7 @@ do_list_users() {
 
 do_uninstall() {
   echo
-  ask_yes_no "Remove 3proxy and all its users?" n || { echo "Cancelled."; echo; return; }
+  ask_yes_no "Удалить 3proxy вместе со всеми пользователями?" n || { echo "Отменено."; echo; return; }
   systemctl disable --now 3proxy >/dev/null 2>&1 || true
   rm -f "$UNIT"
   systemctl daemon-reload
@@ -398,7 +399,7 @@ do_uninstall() {
   rm -rf "$CONF_DIR"
   id "$SERVICE_USER" >/dev/null 2>&1 && userdel "$SERVICE_USER" >/dev/null 2>&1
   echo
-  info "3proxy removed"
+  info "3proxy удалён"
   echo
   exit 0
 }
@@ -413,12 +414,12 @@ main() {
 
   local choice
   if ! is_installed; then
-    echo "Select action:"
+    echo "Выберите действие:"
     echo
-    echo "  1. Install 3proxy"
-    echo "  2. Exit"
+    echo "  1. Установить 3proxy"
+    echo "  2. Выход"
     echo
-    read -r -p "Your choice: " choice
+    read -r -p "Ваш выбор: " choice
     case "$choice" in
       1) do_install ;;
       *) exit 0 ;;
@@ -427,15 +428,15 @@ main() {
   fi
 
   load_state
-  echo "Select action:"
+  echo "Выберите действие:"
   echo
-  echo "  1. Add user"
-  echo "  2. Delete user"
-  echo "  3. List users"
-  echo "  4. Uninstall 3proxy"
-  echo "  5. Exit"
+  echo "  1. Добавить пользователя"
+  echo "  2. Удалить пользователя"
+  echo "  3. Список пользователей"
+  echo "  4. Удалить 3proxy"
+  echo "  5. Выход"
   echo
-  read -r -p "Your choice: " choice
+  read -r -p "Ваш выбор: " choice
   case "$choice" in
     1) do_add_user ;;
     2) do_delete_user ;;
